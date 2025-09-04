@@ -2,6 +2,7 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import re
+from datetime import datetime
 
 st.title("Mackly Techpack Extractor")
 
@@ -16,6 +17,43 @@ fields = [
 	"FABRIC TOP","DESIGNER","COLOR COMBO","PRINT NAME",
 	"FABRIC BOTTOM","FABRIC FULL GARMENT","PRINT TECHNIQUE"
 ]
+
+def _normalize_date_to_ddmmyyyy(raw_value: str) -> str:
+	"""Return date in dd/mm/yyyy if parseable; else return original string or empty."""
+	if not isinstance(raw_value, str):
+		return raw_value
+	s = raw_value.strip()
+	if not s or s.lower() in {"n/a", "na", "tbd", "-"}:
+		return ""
+	# Try common formats (month/day/year, year-month-day, day-month-year, textual month)
+	candidates = [
+		"%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y",
+		"%m/%d/%Y", "%m-%d-%Y", "%m.%d.%Y",
+		"%Y-%m-%d", "%Y/%m/%d",
+		"%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y",
+		"%d/%m/%y", "%d-%m-%y", "%m/%d/%y", "%m-%d-%y"
+	]
+	for fmt in candidates:
+		try:
+			dt = datetime.strptime(s, fmt)
+			return dt.strftime("%d/%m/%Y")
+		except ValueError:
+			continue
+	# Fallback: attempt to normalize separators and re-try day-first heuristic
+	s_norm = re.sub(r"[.\-]", "/", s)
+	m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{2,4})$", s_norm)
+	if m:
+		day, month, year = m.groups()
+		if len(year) == 2:
+			year = ("20" + year) if int(year) <= 68 else ("19" + year)
+		try:
+			dt = datetime(int(year), int(month), int(day))
+			return dt.strftime("%d/%m/%Y")
+		except ValueError:
+			pass
+	return s
+
+fields_to_normalize = {"DATE"}
 
 if uploaded_file:
 	# Backward compatibility: single file input returns list when accept_multiple_files=True
@@ -39,7 +77,10 @@ if uploaded_file:
 				lookahead = rf"(?:\s(?:{others_union})\b|\n|$)" if others_union else r"(?:\n|$)"
 				pattern = rf"{re.escape(field)}\s*(.*?)(?={lookahead})"
 				match = re.search(pattern, text)
-				data[field] = match.group(1).strip() if match else ""
+				value = match.group(1).strip() if match else ""
+				if field in fields_to_normalize:
+					value = _normalize_date_to_ddmmyyyy(value)
+				data[field] = value
 
 			row = {"FILE": f.name}
 			row.update(data)
@@ -61,8 +102,10 @@ if uploaded_file:
 	editable_cols = ["FILE"] + fields
 	edited_df = st.data_editor(df[editable_cols], use_container_width=True)
 
-	# Recompute length after edits for export/validation
+	# Recompute derived fields and normalize DATE after edits
 	edited_df["ITEM NAME LENGTH"] = edited_df["ITEM NAME"].apply(lambda x: len(x) if isinstance(x, str) else 0)
+	if "DATE" in edited_df.columns:
+		edited_df["DATE"] = edited_df["DATE"].apply(_normalize_date_to_ddmmyyyy)
 
 	if st.button("Export to CSV"):
 		export_df = edited_df.copy()
