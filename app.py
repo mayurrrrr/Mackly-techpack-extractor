@@ -107,9 +107,9 @@ if uploaded_file:
 	if "DATE" in edited_df.columns:
 		edited_df["DATE"] = edited_df["DATE"].apply(_normalize_date_to_ddmmyyyy)
 
-	if st.button("Export to CSV"):
+	if st.button("Export to Excel"):
 		export_df = edited_df.copy()
 		if "FILE" in export_df.columns:
 			export_df = export_df.drop(columns=["FILE"])
-		export_df.to_csv("output.csv", index=False, encoding="utf-8-sig")
-		st.download_button("Download CSV", open("output.csv","rb"), "techpacks.csv")
+		export_df.to_excel("output.xlsx", index=False)
+		st.download_button("Download Excel", open("output.xlsx","rb"), "techpacks.xlsx")
